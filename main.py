@@ -130,9 +130,11 @@ Args:
   labels    : one hot encoded labels
 '''
 @tf.function
-def train_step(joint_data, bone_data, labels):
+def train_step(joint_data, bone_data, labels, incidence_lambda):
     with tf.GradientTape() as tape:
-        logits = model(joint_data, bone_data, training=True)
+        logits = model(joint_data, bone_data,
+                       training=True,
+                       incidence_lambda=incidence_lambda)
         loss   = get_cross_entropy_loss(labels=labels, logits=logits)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -187,7 +189,7 @@ if __name__ == "__main__":
 
         print("Training: ")
         for joint_data, bone_data, labels in tqdm(train_data):
-            train_step(joint_data, bone_data, labels)
+            train_step(joint_data, bone_data, labels, 1.0 if epoch > 10 else 0.0)
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)

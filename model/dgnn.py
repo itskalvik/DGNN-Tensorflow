@@ -1,6 +1,32 @@
 from graph.directed_ntu_rgb_d import Graph
 import tensorflow as tf
 
+"""scale_gradients: helper function for AdaptiveIncidence
+"""
+@tf.custom_gradient
+def scale_gradients(incidence_matrix, incidence_lambda):
+    def custom_grad(dy):
+        return tf.math.multiply(dy, incidence_lambda)
+    return incidence_matrix, custom_grad
+
+"""AdaptiveIncidence: stores incidence matrix as trainable Variable
+                      and allows us to control the scale of its gradient
+call Args:
+    inputs: tensor, output of preceding layer
+    incidence_lambda: double, specifying scaling factor of gradient
+Returns:
+    A Keras layer instance.
+"""
+class AdaptiveIncidence(tf.keras.layers.Layer):
+  def __init__(self, incidence_matrix):
+    super().__init__()
+    self.incidence_matrix = tf.Variable(initial_value=incidence_matrix,
+                                        trainable=True,
+                                        dtype=tf.float32)
+
+  def call(self, incidence_lambda):
+    return scale_gradients(self.incidence_matrix, incidence_lambda)
+
 '''
 DGN Block
 Args:
@@ -19,8 +45,8 @@ class DGNBlock(tf.keras.Model):
         self.num_edges = tf.shape(source_A)[1]
 
         # Adaptive block with learnable graphs; shapes (V_node, V_edge)
-        self.source_A = source_A
-        self.target_A = target_A
+        self.source_A = AdaptiveIncidence(source_A)
+        self.target_A = AdaptiveIncidence(target_A)
 
         # Updating functions
         self.H_v = tf.keras.layers.Dense(filters, activation=None)
@@ -42,10 +68,15 @@ class DGNBlock(tf.keras.Model):
       fv:  [BatchSize x T x Nv x C], vertexe data;
       fe:  [BatchSize x T x Ne x C], edge data
       training: bool, True if model is training, else false
+      incidence_lambda : float, controls the gradient wrt incidence matrices,
+                         value of 0 will disable learning of the matrix,
+                         value of 1 will allow normal gradient flow thereby
+                         allowing learning of the matrix. Can also be anything
+                         inbetween to change amount of learning of the matrix
     Returns:
       forward propagation result
     '''
-    def call(self, fv, fe, training):
+    def call(self, fv, fe, training, incidence_lambda):
         BatchSize = tf.shape(fv)[0]
         T = tf.shape(fv)[1]
         Nv = tf.shape(fv)[2]
@@ -61,8 +92,8 @@ class DGNBlock(tf.keras.Model):
         fe = tf.reshape(fe, (BatchSize, -1, Ne))
 
         # Compute features for node/edge updates
-        feAs = tf.einsum('nce,ev->ncv', fe, tf.transpose(self.source_A))
-        feAt = tf.einsum('nce,ev->ncv', fe, tf.transpose(self.target_A))
+        feAs = tf.einsum('nce,ev->ncv', fe, tf.transpose(self.source_A(incidence_lambda)))
+        feAt = tf.einsum('nce,ev->ncv', fe, tf.transpose(self.target_A(incidence_lambda)))
         fv_inp = tf.stack([fv, feAs, feAt], axis=1) # Out shape: (BatchSize,3,CT,Nv)
         fv_inp = tf.transpose(tf.reshape(fv_inp, (BatchSize, 3 * C, T, Nv)), perm=[0,2,3,1]) # Out shape: (BatchSize,T,Nv,3C)
 
@@ -70,8 +101,8 @@ class DGNBlock(tf.keras.Model):
         fv_out = self.bn_v(fv_out, training=training)
         fv_out = self.act(fv_out)
 
-        fvAs = tf.einsum('nce,ev->ncv', fv, tf.transpose(self.source_A))
-        fvAt = tf.einsum('nce,ev->ncv', fv, tf.transpose(self.target_A))
+        fvAs = tf.einsum('nce,ev->ncv', fv, tf.transpose(self.source_A(incidence_lambda)))
+        fvAt = tf.einsum('nce,ev->ncv', fv, tf.transpose(self.target_A(incidence_lambda)))
         fe_inp = tf.stack([fe, fvAs, fvAt], axis=1) # Out shape: (BatchSize,3,CT,Ne)
         fe_inp = tf.transpose(tf.reshape(fe_inp, (BatchSize, 3 * C, T, Ne)), perm=[0,2,3,1]) # Out shape: (BatchSize,T,Ne,3C)
 
@@ -105,8 +136,8 @@ class GraphTemporalConv(tf.keras.Model):
         self.dgnb = DGNBlock(filters, source_A, target_A, activation)
         self.tc = TemporalConv(filters, kernel_size, stride, activation)
 
-    def call(self, fv, fe, training):
-        fv, fe = self.dgnb(fv, fe, training=training)
+    def call(self, fv, fe, training, incidence_lambda):
+        fv, fe = self.dgnb(fv, fe, training=training, incidence_lambda=incidence_lambda)
         fv = self.tc(fv, training=training)
         fe = self.tc(fe, training=training)
 
@@ -153,7 +184,7 @@ class DGNN(tf.keras.Model):
     Returns:
       forward propagation result
     '''
-    def call(self, fv, fe, training):
+    def call(self, fv, fe, training, incidence_lambda=0):
 
         BatchSize = tf.shape(fv)[0]
         M = tf.shape(fv)[1]
@@ -171,7 +202,7 @@ class DGNN(tf.keras.Model):
         fe = self.bn_v(fe, training=training)
 
         for layer in self.GTC_layers:
-            fv, fe = layer(fv, fe, training=training)
+            fv, fe = layer(fv, fe, training=training, incidence_lambda=incidence_lambda)
 
         # Shape: (BatchSize*M,T,V,C), C is same for fv/fe
         out_channels = tf.shape(fv)[3]

@@ -53,22 +53,6 @@ python3 ntu_gen_motion_data.py
 
 The generation scripts look for generated data in previous step. By default they look at `./data`; change dir configs if needed.
 
-### Kinetics
-
-(**Currently, generating bone/motion data from Kinetics skeletons is not yet supported. Please feel free to add scripts based on `kinetics_gendata.py`**)
-
-1. Download the Kinetics dataset from ST-GCN repo (https://github.com/yysijie/st-gcn)
-2. Generate joint data:
-
-```bash
-cd data_gen
-python3 kinetics_gendata.py
-```
-
-3. Generate bone data: TODO, feel free to fork/submit PR :D
-4. Generate motion data: TODO, feel free to fork/submit PR :D
-
-
 ## Training
 
 ### 1st Stream: Spatial
@@ -92,31 +76,3 @@ python3 main.py --config ./config/nturgbd-cross-subject/train_motion.yaml
 ```
 
 and change the config file path for other datasets if needed.
-
-## Testing
-
-### Test individual streams
-
-To test some model weights (by default saved in `./runs/`), do:
-
-```bash
-python3 main.py --config ./config/<dataset>/test_spatial.yaml
-```
-
-Similarly, change the paths in config file, or change the config files (`<dataset>`) for different datasets as needed.
-
-### Ensemble results
-
-Combine the generated scores with:
-
-```bash
-python ensemble.py --datasets <dataset>
-```
-
-where `<dataset>` is one of `kinetics`, `ntu/xsub`, `ntu/xview`
-
-## TODO
-
-- Kinetics
-    - Handling datasets
-    - Config files
