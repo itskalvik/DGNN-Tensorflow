@@ -193,6 +193,8 @@ if __name__ == "__main__":
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)
+            cross_entropy_loss.reset_states()
+            train_acc.reset_states()
             train_iter += 1
 
         print("Testing: ")
@@ -200,15 +202,12 @@ if __name__ == "__main__":
             test_acc(labels, tf.nn.softmax(test_step(joint_data, bone_data)))
             with summary_writer.as_default():
                 tf.summary.scalar("test_acc", test_acc.result(), step=test_iter)
+            test_acc.reset_states()
             test_iter += 1
 
         if (epoch + 1) % save_freq == 0:
             ckpt_save_path = ckpt_manager.save()
             print('Saving checkpoint for epoch {} at {}'.format(epoch+1, ckpt_save_path))
-
-        cross_entropy_loss.reset_states()
-        train_acc.reset_states()
-        test_acc.reset_states()
 
     ckpt_save_path = ckpt_manager.save()
     print('Saving final checkpoint for epoch {} at {}'.format(epochs, ckpt_save_path))

@@ -6,6 +6,7 @@ import tensorflow as tf
 
 sets = {'train', 'val'}
 datasets = {'ntu/xview', 'ntu/xsub'}
+streams = {'', '_motion'}
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
@@ -29,35 +30,40 @@ def serialize_example(bone_data, joint_data, label):
 def gen_tfrecord_data():
     for dataset in datasets:
         for set in sets:
-            print("Generating TFRecord file for {} {}".format(dataset, set))
+            for stream in streams:
+                print("Generating TFRecord file for {} {} {}".format(dataset, set, stream))
 
-            label_path = '../data/{}/{}_label.pkl'.format(dataset, set)
-            bone_data_path = '../data/{}/{}_data_bone.npy'.format(dataset, set)
-            joint_data_path = '../data/{}/{}_data_joint.npy'.format(dataset, set)
-            tfrecord_data_path = '../data/{}/{}_data.tfrecord'.format(dataset, set)
+                label_path = '../data/{}/{}_label.pkl'.format(dataset, set)
+                bone_data_path = '../data/{}/{}_data_bone{}.npy'.format(dataset, set, stream)
+                joint_data_path = '../data/{}/{}_data_joint{}.npy'.format(dataset, set, stream)
+                tfrecord_data_path = '../data/{}/{}{}_data.tfrecord'.format(dataset, set, stream)
 
-            if not (os.path.exists(label_path) and os.path.exists(bone_data_path) and os.path.exists(joint_data_path)):
-                print('Joint/Bone/Label data does not exist for {} {} set'.format(dataset, set))
-                return
+                if not (os.path.exists(label_path) and \
+                        os.path.exists(bone_data_path) and \
+                        os.path.exists(joint_data_path)):
+                    print('Joint/Bone/Label data does not exist for {} {} set'.format(dataset, set))
+                    return
 
-            try:
-                with open(label_path) as f:
-                    _, labels = pickle.load(f)
-            except:
-                # for pickle file from python2
-                with open(label_path, 'rb') as f:
-                    _, labels = pickle.load(f, encoding='latin1')
+                try:
+                    with open(label_path) as f:
+                        _, labels = pickle.load(f)
+                except:
+                    # for pickle file from python2
+                    with open(label_path, 'rb') as f:
+                        _, labels = pickle.load(f, encoding='latin1')
 
-            bone_data  = np.load(bone_data_path, mmap_mode='r')  # Datashape: Total_samples, 3, 300, 25, 2
-            joint_data = np.load(joint_data_path, mmap_mode='r') # Datashape: Total_samples, 3, 300, 25, 2
+                # Datashape: Total_samples, 3, 300, 25, 2
+                bone_data  = np.load(bone_data_path, mmap_mode='r')
+                joint_data = np.load(joint_data_path, mmap_mode='r')
 
-            bone_data  = np.swapaxes(bone_data, 1, -1)  # Datashape: Total_samples, 2, 300, 25, 3
-            joint_data = np.swapaxes(joint_data, 1, -1) # Datashape: Total_samples, 2, 300, 25, 3
+                # Datashape: Total_samples, 2, 300, 25, 3
+                bone_data  = np.swapaxes(bone_data, 1, -1)
+                joint_data = np.swapaxes(joint_data, 1, -1)
 
-            # Loop through samples and insert into tfrecord
-            with tf.io.TFRecordWriter(tfrecord_data_path) as writer:
-                for i in tqdm(range(len(labels))):
-                    writer.write(serialize_example(bone_data[i], joint_data[i], labels[i]))
+                # Loop through samples and insert into tfrecord
+                with tf.io.TFRecordWriter(tfrecord_data_path) as writer:
+                    for i in tqdm(range(len(labels))):
+                        writer.write(serialize_example(bone_data[i], joint_data[i], labels[i]))
 
 if __name__ == '__main__':
     gen_tfrecord_data()
