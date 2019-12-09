@@ -128,16 +128,19 @@ Args:
   joint_data: tensor joint data
   bone_data : tensor bone data
   labels    : one hot encoded labels
+  train_incidence: When true incidence matrices will be trained
 '''
 @tf.function
-def train_step(joint_data, bone_data, labels, incidence_lambda):
+def train_step(joint_data, bone_data, labels, train_incidence):
     with tf.GradientTape() as tape:
         logits = model(joint_data, bone_data,
-                       training=True,
-                       incidence_lambda=incidence_lambda)
+                       training=True)
         loss   = get_cross_entropy_loss(labels=labels, logits=logits)
-    gradients = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+
+    trainable_variables = [variable for variable in model.trainable_variables if not "incidence_matrix" in variable.name]
+    trainable_variables = model.trainable_variables if train_incidence else trainable_variables
+    gradients = tape.gradient(loss, trainable_variables)
+    optimizer.apply_gradients(zip(gradients, trainable_variables))
 
     train_acc(labels, tf.nn.softmax(logits))
     cross_entropy_loss(loss)
@@ -182,6 +185,22 @@ if __name__ == "__main__":
     train_acc            = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
     test_acc             = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
 
+    for data in train_data:
+        joint_data, bone_data, labels = data
+        break
+
+    tf.summary.trace_on(graph=True, profiler=False)
+    train_step(joint_data, bone_data, labels, False)
+    with summary_writer.as_default():
+      tf.summary.trace_export(name="training_trace",step=0)
+    tf.summary.trace_off()
+
+    tf.summary.trace_on(graph=True, profiler=False)
+    test_step(joint_data, bone_data)
+    with summary_writer.as_default():
+      tf.summary.trace_export(name="testing_trace", step=0)
+    tf.summary.trace_off()
+
     train_iter = 0
     test_iter = 0
     for epoch in range(epochs):
@@ -189,7 +208,7 @@ if __name__ == "__main__":
 
         print("Training: ")
         for joint_data, bone_data, labels in tqdm(train_data):
-            train_step(joint_data, bone_data, labels, 1.0 if epoch > 10 else 0.0)
+            train_step(joint_data, bone_data, labels, True if epoch > 10 else False)
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)
