@@ -107,26 +107,27 @@ class GraphTemporalConv(tf.keras.Model):
         self.dgnb = DGNBlock(filters, source_A, target_A, activation)
         self.tc = TemporalConv(filters, kernel_size, stride)
         self.act = tf.keras.layers.Activation(activation)
+        self.residual = residual
 
-        if not residual:
-            self.residual = lambda fv, fe: (0, 0)
-        elif (not conv_residual) and (stride == 1):
-            self.residual = lambda fv, fe: (fv, fe)
+        if self.residual and (not conv_residual) and (stride == 1):
+            self.residual_layer = lambda features, training: features
         else:
-            self.residual = TemporalConv(filters, kernel_size, stride)
+            self.residual_layer = TemporalConv(filters, kernel_size, stride)
 
 
     def call(self, fv, fe, training):
-        fv_res = self.residual(fv, training=training)
-        fe_res = self.residual(fe, training=training)
+        if self.residual:
+            fv_res = self.residual_layer(fv, training=training)
+            fe_res = self.residual_layer(fe, training=training)
 
         fv, fe = self.dgnb(fv, fe, training=training)
 
         fv = self.tc(fv, training=training)
         fe = self.tc(fe, training=training)
 
-        fv = tf.keras.layers.add([fv, fv_res])
-        fe = tf.keras.layers.add([fe, fe_res])
+        if self.residual:
+            fv = tf.keras.layers.add([fv, fv_res])
+            fe = tf.keras.layers.add([fe, fe_res])
 
         return self.act(fv), self.act(fe)
 
