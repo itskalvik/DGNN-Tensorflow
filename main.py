@@ -20,11 +20,11 @@ def get_parser():
     parser = argparse.ArgumentParser(
         description='Directed Graph Neural Net for Skeleton Action Recognition')
     parser.add_argument(
-        '--base-lr', type=float, default=1e-4, help='initial learning rate')
+        '--base-lr', type=float, default=1e-2, help='initial learning rate')
     parser.add_argument(
         '--num-classes', type=int, default=60, help='number of classes in dataset')
     parser.add_argument(
-        '--batch-size', type=int, default=8, help='training batch size')
+        '--batch-size', type=int, default=16, help='training batch size')
     parser.add_argument(
         '--num-epochs', type=int, default=120, help='total epochs to train')
     parser.add_argument(
@@ -45,7 +45,11 @@ def get_parser():
         '--test-data-path',
         default="data/ntu/xview/val_data.tfrecord",
         help='path to tfrecord file with testing dataset')
-
+    parser.add_argument(
+        '--freeze-graph-until',
+        type=int,
+        default=10,
+        help='number of epochs before making graphs learnable')
     return parser
 
 
@@ -133,8 +137,7 @@ Args:
 @tf.function
 def train_step(joint_data, bone_data, labels, train_incidence):
     with tf.GradientTape() as tape:
-        logits = model(joint_data, bone_data,
-                       training=True)
+        logits = model(joint_data, bone_data, training=True)
         loss   = get_cross_entropy_loss(labels=labels, logits=logits)
 
     trainable_variables = [variable for variable in model.trainable_variables if not "incidence_matrix" in variable.name]
@@ -162,7 +165,14 @@ if __name__ == "__main__":
     train_data_path = arg.train_data_path
     test_data_path  = arg.test_data_path
     save_freq       = arg.save_freq
+    freeze_graph_until = arg.freeze_graph_until
 
+    '''
+    Get tf.dataset objects for training and testing data
+    Data shape: bone data  - batch_size, 2, 300, 25, 3
+                joint data - batch_size, 2, 300, 25, 3
+                labels     - batch_size, num_classes
+    '''
     train_data = get_dataset(train_data_path,
                              num_classes=num_classes,
                              batch_size=batch_size,
@@ -181,34 +191,55 @@ if __name__ == "__main__":
     ckpt           = tf.train.Checkpoint(model=model, optimizer=optimizer)
     ckpt_manager   = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
+    # keras metrics to hold accuracies and loss
     cross_entropy_loss   = tf.keras.metrics.Mean(name='cross_entropy_loss')
     train_acc            = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
     test_acc             = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
 
+    # Get 1 batch from train dataset to get graph trace of train and test functions
     for data in train_data:
         joint_data, bone_data, labels = data
         break
 
-    tf.summary.trace_on(graph=True, profiler=False)
-    train_step(joint_data, bone_data, labels, False)
+    # add graph of train and test functions to tensorboard graphs
+    # Note:
+    # graph training is True on purpose, allows tensorflow to get all the
+    # variables, which is required for the first call of @tf.function function
+    tf.summary.trace_on(graph=True)
+    train_step(joint_data, bone_data, labels, True)
     with summary_writer.as_default():
       tf.summary.trace_export(name="training_trace",step=0)
     tf.summary.trace_off()
 
-    tf.summary.trace_on(graph=True, profiler=False)
+    tf.summary.trace_on(graph=True)
     test_step(joint_data, bone_data)
     with summary_writer.as_default():
       tf.summary.trace_export(name="testing_trace", step=0)
     tf.summary.trace_off()
 
+    # get graph_temporal_conv layers to plot their incidence matrices
+    # in order to plot in tensorboard
+    gtc_layers = [layer for layer in model.layers if "graph_temporal_conv" in layer.name]
+
+    # start training
     train_iter = 0
     test_iter = 0
     for epoch in range(epochs):
         print("Epoch: {}".format(epoch+1))
 
+        # Using the file writer, log the incidence matrices as images.
+        with summary_writer.as_default():
+            for layer in gtc_layers:
+                tf.summary.image(layer.name+"_incidence_matrix_target",
+                                 tf.expand_dims(tf.expand_dims(layer.dgnb.target_A, 0), -1),
+                                 step=epoch)
+                tf.summary.image(layer.name+"_incidence_matrix_source",
+                                 tf.expand_dims(tf.expand_dims(layer.dgnb.source_A, 0), -1),
+                                 step=epoch)
+
         print("Training: ")
         for joint_data, bone_data, labels in tqdm(train_data):
-            train_step(joint_data, bone_data, labels, True if epoch > 10 else False)
+            train_step(joint_data, bone_data, labels, True if epoch > freeze_graph_until else False)
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)
