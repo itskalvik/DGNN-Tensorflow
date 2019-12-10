@@ -87,35 +87,48 @@ class DGNBlock(tf.keras.Model):
         return fv_out, fe_out
 
 class TemporalConv(tf.keras.Model):
-    def __init__(self, filters, kernel_size=9, stride=1, activation='relu'):
+    def __init__(self, filters, kernel_size=9, stride=1):
         super().__init__()
-
         self.conv = tf.keras.layers.Conv2D(filters, [kernel_size, 1], [stride, 1],
                                            padding='same',
                                            kernel_initializer='he_normal')
         self.bn   = tf.keras.layers.BatchNormalization(axis=-1)
-        self.act  = tf.keras.layers.Activation(activation)
 
     # Input shape:  (BatchSize,T,Nv,C)
     # Output shape: (BatchSize,T,Nv,filters)
     def call(self, x, training):
         x = self.conv(x)
         x = self.bn(x, training=training)
-        x = self.act(x)
         return x
 
 class GraphTemporalConv(tf.keras.Model):
-    def __init__(self, filters, source_A, target_A, kernel_size=9, stride=1, activation='relu', residual=True):
+    def __init__(self, filters, source_A, target_A, kernel_size=9, stride=1, activation='relu', residual=True, conv_residual=False):
         super().__init__()
         self.dgnb = DGNBlock(filters, source_A, target_A, activation)
-        self.tc = TemporalConv(filters, kernel_size, stride, activation)
+        self.tc = TemporalConv(filters, kernel_size, stride)
+        self.act = tf.keras.layers.Activation(activation)
+
+        if not residual:
+            self.residual = lambda fv, fe: (0, 0)
+        elif (not conv_residual) and (stride == 1):
+            self.residual = lambda fv, fe: (fv, fe)
+        else:
+            self.residual = TemporalConv(filters, kernel_size, stride)
+
 
     def call(self, fv, fe, training):
+        fv_res = self.residual(fv, training=training)
+        fe_res = self.residual(fe, training=training)
+
         fv, fe = self.dgnb(fv, fe, training=training)
+
         fv = self.tc(fv, training=training)
         fe = self.tc(fe, training=training)
 
-        return fv, fe
+        fv = tf.keras.layers.add([fv, fv_res])
+        fe = tf.keras.layers.add([fe, fe_res])
+
+        return self.act(fv), self.act(fe)
 
 class DGNN(tf.keras.Model):
     def __init__(self, num_classes=60):
@@ -125,18 +138,19 @@ class DGNN(tf.keras.Model):
         source_A = self.graph.source_M.astype(np.float32)
         target_A = self.graph.target_M.astype(np.float32)
 
+        # BatchNorm on time axis
         self.bn_v = tf.keras.layers.BatchNormalization(axis=1)
         self.bn_e = tf.keras.layers.BatchNormalization(axis=1)
 
         self.GTC_layers = []
+        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
         self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
         self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
         self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, stride=2))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, stride=2, residual=True, conv_residual=True))
         self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A))
         self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, stride=2))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, stride=2, residual=True, conv_residual=True))
         self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A))
         self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A))
 

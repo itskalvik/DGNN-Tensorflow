@@ -246,7 +246,7 @@ if __name__ == "__main__":
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)
-                tf.summary.scalar("train_acc_top_k", train_acc_top_k.result(), step=train_iter)
+                tf.summary.scalar("train_acc_top_5", train_acc_top_k.result(), step=train_iter)
             cross_entropy_loss.reset_states()
             train_acc.reset_states()
             train_acc_top_k.reset_states()
@@ -259,7 +259,7 @@ if __name__ == "__main__":
             test_acc_top_k(labels, y_pred)
             with summary_writer.as_default():
                 tf.summary.scalar("test_acc", test_acc.result(), step=test_iter)
-                tf.summary.scalar("test_acc_top_k", test_acc_top_k.result(), step=test_iter)
+                tf.summary.scalar("test_acc_top_5", test_acc_top_k.result(), step=test_iter)
             test_acc.reset_states()
             test_acc_top_k.reset_states()
             test_iter += 1
