@@ -124,7 +124,7 @@ Args:
 @tf.function
 def test_step(joint_data, bone_data):
     logits = model(joint_data, bone_data, training=False)
-    return logits
+    return tf.nn.softmax(logits)
 
 '''
 train_step: trains model with cross entropy loss
@@ -139,14 +139,12 @@ def train_step(joint_data, bone_data, labels, train_incidence):
     with tf.GradientTape() as tape:
         logits = model(joint_data, bone_data, training=True)
         loss   = get_cross_entropy_loss(labels=labels, logits=logits)
-
     trainable_variables = [variable for variable in model.trainable_variables if not "incidence_matrix" in variable.name]
     trainable_variables = model.trainable_variables if train_incidence else trainable_variables
     gradients = tape.gradient(loss, trainable_variables)
     optimizer.apply_gradients(zip(gradients, trainable_variables))
+    return loss, tf.nn.softmax(logits)
 
-    train_acc(labels, tf.nn.softmax(logits))
-    cross_entropy_loss(loss)
 
 if __name__ == "__main__":
     parser = get_parser()
@@ -192,9 +190,11 @@ if __name__ == "__main__":
     ckpt_manager   = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
     # keras metrics to hold accuracies and loss
-    cross_entropy_loss   = tf.keras.metrics.Mean(name='cross_entropy_loss')
-    train_acc            = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
-    test_acc             = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
+    cross_entropy_loss = tf.keras.metrics.Mean(name='cross_entropy_loss')
+    train_acc          = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
+    test_acc           = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
+    train_acc_top_k    = tf.keras.metrics.TopKCategoricalAccuracy(name='train_acc_top_k')
+    test_acc_top_k     = tf.keras.metrics.TopKCategoricalAccuracy(name='test_acc_top_k')
 
     # Get 1 batch from train dataset to get graph trace of train and test functions
     for data in train_data:
@@ -239,20 +239,29 @@ if __name__ == "__main__":
 
         print("Training: ")
         for joint_data, bone_data, labels in tqdm(train_data):
-            train_step(joint_data, bone_data, labels, True if epoch > freeze_graph_until else False)
+            loss, y_pred = train_step(joint_data, bone_data, labels, True if epoch > freeze_graph_until else False)
+            train_acc(labels, y_pred)
+            train_acc_top_k(labels, y_pred)
+            cross_entropy_loss(loss)
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)
+                tf.summary.scalar("train_acc_top_k", train_acc_top_k.result(), step=train_iter)
             cross_entropy_loss.reset_states()
             train_acc.reset_states()
+            train_acc_top_k.reset_states()
             train_iter += 1
 
         print("Testing: ")
         for joint_data, bone_data, labels in tqdm(test_data):
-            test_acc(labels, tf.nn.softmax(test_step(joint_data, bone_data)))
+            y_pred = test_step(joint_data, bone_data)
+            test_acc(labels, y_pred)
+            test_acc_top_k(labels, y_pred)
             with summary_writer.as_default():
                 tf.summary.scalar("test_acc", test_acc.result(), step=test_iter)
+                tf.summary.scalar("test_acc_top_k", test_acc_top_k.result(), step=test_iter)
             test_acc.reset_states()
+            test_acc_top_k.reset_states()
             test_iter += 1
 
         if (epoch + 1) % save_freq == 0:
