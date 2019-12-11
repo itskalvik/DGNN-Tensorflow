@@ -70,10 +70,11 @@ Args:
   batch_size      : Represents the number of consecutive elements of this dataset to combine in a single batch.
   drop_remainder  : If True, the last batch will be dropped in the case it has fewer than batch_size elements. Defaults to False
   shuffle         : If True, the data samples will be shuffled randomly. Defaults to False
+  shuffle_size    : Size of buffer used to hold data for shuffling
 Returns:
   The Dataset with joint, bone and one hot encoded label data
 '''
-def get_dataset(filepath, num_classes=60, batch_size=32, drop_remainder=False, shuffle=False):
+def get_dataset(filepath, num_classes=60, batch_size=32, drop_remainder=False, shuffle=False, shuffle_size=40000):
     # dictionary describing the features.
     feature_description = {
         'bone_data' : tf.io.FixedLenFeature([], tf.string),
@@ -93,7 +94,7 @@ def get_dataset(filepath, num_classes=60, batch_size=32, drop_remainder=False, s
     dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
     dataset = dataset.prefetch(batch_size)
     if shuffle:
-        dataset = dataset.shuffle(2000)
+        dataset = dataset.shuffle(shuffle_size)
     return dataset
 
 
@@ -184,7 +185,7 @@ if __name__ == "__main__":
                             shuffle=False)
 
     model          = DGNN(num_classes=num_classes)
-    optimizer      = tf.keras.optimizers.Adam(learning_rate = learning_rate)
+    optimizer      = tf.keras.optimizers.SGD(learning_rate = learning_rate)
     summary_writer = tf.summary.create_file_writer(log_dir)
     ckpt           = tf.train.Checkpoint(model=model, optimizer=optimizer)
     ckpt_manager   = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
@@ -193,8 +194,8 @@ if __name__ == "__main__":
     cross_entropy_loss = tf.keras.metrics.Mean(name='cross_entropy_loss')
     train_acc          = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
     test_acc           = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
-    train_acc_top_k    = tf.keras.metrics.TopKCategoricalAccuracy(name='train_acc_top_k')
-    test_acc_top_k     = tf.keras.metrics.TopKCategoricalAccuracy(name='test_acc_top_k')
+    train_acc_top_5    = tf.keras.metrics.TopKCategoricalAccuracy(name='train_acc_top_5')
+    test_acc_top_5     = tf.keras.metrics.TopKCategoricalAccuracy(name='test_acc_top_5')
 
     # Get 1 batch from train dataset to get graph trace of train and test functions
     for data in train_data:
@@ -241,27 +242,27 @@ if __name__ == "__main__":
         for joint_data, bone_data, labels in tqdm(train_data):
             loss, y_pred = train_step(joint_data, bone_data, labels, True if epoch > freeze_graph_until else False)
             train_acc(labels, y_pred)
-            train_acc_top_k(labels, y_pred)
+            train_acc_top_5(labels, y_pred)
             cross_entropy_loss(loss)
             with summary_writer.as_default():
                 tf.summary.scalar("cross_entropy_loss", cross_entropy_loss.result(), step=train_iter)
                 tf.summary.scalar("train_acc", train_acc.result(), step=train_iter)
-                tf.summary.scalar("train_acc_top_5", train_acc_top_k.result(), step=train_iter)
+                tf.summary.scalar("train_acc_top_5", train_acc_top_5.result(), step=train_iter)
             cross_entropy_loss.reset_states()
             train_acc.reset_states()
-            train_acc_top_k.reset_states()
+            train_acc_top_5.reset_states()
             train_iter += 1
 
         print("Testing: ")
         for joint_data, bone_data, labels in tqdm(test_data):
             y_pred = test_step(joint_data, bone_data)
             test_acc(labels, y_pred)
-            test_acc_top_k(labels, y_pred)
+            test_acc_top_5(labels, y_pred)
             with summary_writer.as_default():
                 tf.summary.scalar("test_acc", test_acc.result(), step=test_iter)
-                tf.summary.scalar("test_acc_top_5", test_acc_top_k.result(), step=test_iter)
+                tf.summary.scalar("test_acc_top_5", test_acc_top_5.result(), step=test_iter)
             test_acc.reset_states()
-            test_acc_top_k.reset_states()
+            test_acc_top_5.reset_states()
             test_iter += 1
 
         if (epoch + 1) % save_freq == 0:

@@ -145,15 +145,14 @@ class DGNN(tf.keras.Model):
 
         self.GTC_layers = []
         self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, stride=2, residual=True, conv_residual=True))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, stride=2, residual=True, conv_residual=True))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, stride=2, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, stride=2, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, residual=False))
 
         self.fc  = tf.keras.layers.Dense(num_classes, activation=None)
         self.gap = tf.keras.layers.GlobalAveragePooling2D()
