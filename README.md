@@ -45,10 +45,16 @@ Specify the data location if the raw skeletons data are placed somewhere else. T
 python3 ntu_gen_bone_data.py
 ```
 
-5. Finally, generate the motion data from joints/bones:
+5. Generate the motion data from joints/bones:
 
 ```bash
 python3 ntu_gen_motion_data.py
+```
+
+6. Generate the tfrecord files for motion and spatial data :
+
+```bash
+python3 ntu_gen_tfrecord_data.py
 ```
 
 The generation scripts look for generated data in previous step. By default they look at `./data`; change dir configs if needed.

@@ -102,33 +102,16 @@ class TemporalConv(tf.keras.Model):
         return x
 
 class GraphTemporalConv(tf.keras.Model):
-    def __init__(self, filters, source_A, target_A, kernel_size=9, stride=1, activation='relu', residual=True, conv_residual=False):
+    def __init__(self, filters, source_A, target_A, kernel_size=9, stride=1, activation='relu'):
         super().__init__()
         self.dgnb = DGNBlock(filters, source_A, target_A, activation)
         self.tc = TemporalConv(filters, kernel_size, stride)
         self.act = tf.keras.layers.Activation(activation)
-        self.residual = residual
-
-        if self.residual and (not conv_residual) and (stride == 1):
-            self.residual_layer = lambda features, training: features
-        else:
-            self.residual_layer = TemporalConv(filters, kernel_size, stride)
-
 
     def call(self, fv, fe, training):
-        if self.residual:
-            fv_res = self.residual_layer(fv, training=training)
-            fe_res = self.residual_layer(fe, training=training)
-
         fv, fe = self.dgnb(fv, fe, training=training)
-
         fv = self.tc(fv, training=training)
         fe = self.tc(fe, training=training)
-
-        if self.residual:
-            fv = tf.keras.layers.add([fv, fv_res])
-            fe = tf.keras.layers.add([fe, fe_res])
-
         return self.act(fv), self.act(fe)
 
 class DGNN(tf.keras.Model):
@@ -139,23 +122,19 @@ class DGNN(tf.keras.Model):
         source_A = self.graph.source_M.astype(np.float32)
         target_A = self.graph.target_M.astype(np.float32)
 
-        # BatchNorm on time axis
-        self.bn_v = tf.keras.layers.BatchNormalization(axis=1)
-        self.bn_e = tf.keras.layers.BatchNormalization(axis=1)
-
         self.GTC_layers = []
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, stride=2, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, stride=2, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, residual=False))
-        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, residual=False))
+        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(64,  source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A, stride=2))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(128, source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A, stride=2))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A))
+        self.GTC_layers.append(GraphTemporalConv(256, source_A, target_A))
 
-        self.fc  = tf.keras.layers.Dense(num_classes, activation=None)
         self.gap = tf.keras.layers.GlobalAveragePooling2D()
+        self.fc  = tf.keras.layers.Dense(num_classes, activation=None)
 
     '''
     forward propagation function
@@ -184,10 +163,6 @@ class DGNN(tf.keras.Model):
         #merge M axis into BatchSize axis
         fv = tf.reshape(fv, [-1, T, Nv, C])
         fe = tf.reshape(fe, [-1, T, Ne, C])
-
-        # Apply batch norm on time/frame axis
-        fv = self.bn_v(fv, training=training)
-        fe = self.bn_v(fe, training=training)
 
         for layer in self.GTC_layers:
             fv, fe = layer(fv, fe, training=training)

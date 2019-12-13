@@ -20,11 +20,11 @@ def get_parser():
     parser = argparse.ArgumentParser(
         description='Directed Graph Neural Net for Skeleton Action Recognition')
     parser.add_argument(
-        '--base-lr', type=float, default=1e-2, help='initial learning rate')
+        '--base-lr', type=float, default=1e-1, help='initial learning rate')
     parser.add_argument(
         '--num-classes', type=int, default=60, help='number of classes in dataset')
     parser.add_argument(
-        '--batch-size', type=int, default=16, help='training batch size')
+        '--batch-size', type=int, default=32, help='training batch size')
     parser.add_argument(
         '--num-epochs', type=int, default=120, help='total epochs to train')
     parser.add_argument(
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     save_arg(arg)
     shutil.copy2(inspect.getfile(DGNN), arg.log_dir)
 
-    learning_rate   = arg.base_lr
+    base_lr         = arg.base_lr
     num_classes     = arg.num_classes
     batch_size      = arg.batch_size
     epochs          = arg.num_epochs
@@ -184,6 +184,10 @@ if __name__ == "__main__":
                             drop_remainder=False,
                             shuffle=False)
 
+    learning_rate  = tf.keras.optimizers.schedules.PolynomialDecay(base_lr,
+                                    decay_steps=int((40000*epochs)/batch_size),
+                                    end_learning_rate=1e-4,
+                                    cycle=False)
     model          = DGNN(num_classes=num_classes)
     optimizer      = tf.keras.optimizers.SGD(learning_rate = learning_rate)
     summary_writer = tf.summary.create_file_writer(log_dir)
@@ -191,11 +195,13 @@ if __name__ == "__main__":
     ckpt_manager   = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
     # keras metrics to hold accuracies and loss
-    cross_entropy_loss = tf.keras.metrics.Mean(name='cross_entropy_loss')
-    train_acc          = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
-    test_acc           = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
-    train_acc_top_5    = tf.keras.metrics.TopKCategoricalAccuracy(name='train_acc_top_5')
-    test_acc_top_5     = tf.keras.metrics.TopKCategoricalAccuracy(name='test_acc_top_5')
+    cross_entropy_loss   = tf.keras.metrics.Mean(name='cross_entropy_loss')
+    train_acc            = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
+    test_acc             = tf.keras.metrics.CategoricalAccuracy(name='test_acc')
+    epoch_test_acc       = tf.keras.metrics.CategoricalAccuracy(name='epoch_test_acc')
+    train_acc_top_5      = tf.keras.metrics.TopKCategoricalAccuracy(name='train_acc_top_5')
+    test_acc_top_5       = tf.keras.metrics.TopKCategoricalAccuracy(name='test_acc_top_5')
+    epoch_test_acc_top_5 = tf.keras.metrics.TopKCategoricalAccuracy(name='epoch_test_acc_top_5')
 
     # Get 1 batch from train dataset to get graph trace of train and test functions
     for data in train_data:
@@ -257,13 +263,20 @@ if __name__ == "__main__":
         for joint_data, bone_data, labels in tqdm(test_data):
             y_pred = test_step(joint_data, bone_data)
             test_acc(labels, y_pred)
+            epoch_test_acc(labels, y_pred)
             test_acc_top_5(labels, y_pred)
+            epoch_test_acc_top_5(labels, y_pred)
             with summary_writer.as_default():
                 tf.summary.scalar("test_acc", test_acc.result(), step=test_iter)
                 tf.summary.scalar("test_acc_top_5", test_acc_top_5.result(), step=test_iter)
             test_acc.reset_states()
             test_acc_top_5.reset_states()
             test_iter += 1
+        with summary_writer.as_default():
+            tf.summary.scalar("epoch_test_acc", epoch_test_acc.result(), step=epoch)
+            tf.summary.scalar("epoch_test_acc_top_5", epoch_test_acc_top_5.result(), step=epoch)
+        epoch_test_acc.reset_states()
+        epoch_test_acc_top_5.reset_states()
 
         if (epoch + 1) % save_freq == 0:
             ckpt_save_path = ckpt_manager.save()
