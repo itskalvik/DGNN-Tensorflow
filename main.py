@@ -39,12 +39,12 @@ def get_parser():
         help='folder to store model-definition/training-logs/hyperparameters')
     parser.add_argument(
         '--train-data-path',
-        default="data/ntu/xview/train_data.tfrecord",
-        help='path to tfrecord file with training dataset')
+        default="data/ntu/xview/train_data",
+        help='path to folder with training dataset tfrecord files')
     parser.add_argument(
         '--test-data-path',
-        default="data/ntu/xview/val_data.tfrecord",
-        help='path to tfrecord file with testing dataset')
+        default="data/ntu/xview/val_data",
+        help='path to folder with testing dataset tfrecord files')
     parser.add_argument(
         '--freeze-graph-until',
         type=int,
@@ -65,7 +65,7 @@ def save_arg(arg):
 '''
 get_dataset: Returns a tensorflow dataset object with joint, bone and one hot encoded label data
 Args:
-  filepath        : File path to TFRecord file with dataset
+  directory       : Path to folder with TFRecord files for dataset
   num_classes     : Number of classes in dataset for one hot encoding
   batch_size      : Represents the number of consecutive elements of this dataset to combine in a single batch.
   drop_remainder  : If True, the last batch will be dropped in the case it has fewer than batch_size elements. Defaults to False
@@ -74,7 +74,7 @@ Args:
 Returns:
   The Dataset with joint, bone and one hot encoded label data
 '''
-def get_dataset(filepath, num_classes=60, batch_size=32, drop_remainder=False, shuffle=False, shuffle_size=40000):
+def get_dataset(directory, num_classes=60, batch_size=32, drop_remainder=False, shuffle=False, shuffle_size=1000):
     # dictionary describing the features.
     feature_description = {
         'bone_data' : tf.io.FixedLenFeature([], tf.string),
@@ -89,7 +89,8 @@ def get_dataset(filepath, num_classes=60, batch_size=32, drop_remainder=False, s
                tf.io.parse_tensor(features['joint_data'], tf.float32), \
                tf.one_hot(features['label'], num_classes)
 
-    dataset = tf.data.TFRecordDataset(filepath)
+    records = [os.path.join(directory, file) for file in os.listdir(directory) if file.endswith("tfrecord")]
+    dataset = tf.data.TFRecordDataset(records, num_parallel_reads=len(records))
     dataset = dataset.map(_parse_feature_function)
     dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
     dataset = dataset.prefetch(batch_size)
@@ -184,10 +185,11 @@ if __name__ == "__main__":
                             drop_remainder=False,
                             shuffle=False)
 
-    learning_rate  = tf.keras.optimizers.schedules.PolynomialDecay(base_lr,
-                                    decay_steps=int((40000*epochs)/batch_size),
-                                    end_learning_rate=1e-4,
-                                    cycle=False)
+    # decay learning by 1e-1 at epoch 60 and again at epoch 90
+    boundaries = [(40000*60)//batch_size, (40000*90)//batch_size]
+    values = [0.1, 0.01, 0.001]
+    learning_rate  = tf.keras.optimizers.schedules.PiecewiseConstantDecay(boundaries, values)
+
     model          = DGNN(num_classes=num_classes)
     optimizer      = tf.keras.optimizers.SGD(learning_rate = learning_rate)
     summary_writer = tf.summary.create_file_writer(log_dir)

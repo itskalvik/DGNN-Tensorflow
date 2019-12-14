@@ -1,5 +1,6 @@
 import os
 import pickle
+import argparse
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
@@ -7,6 +8,7 @@ import tensorflow as tf
 sets = {'train', 'val'}
 datasets = {'ntu/xview', 'ntu/xsub'}
 streams = {'', '_motion'}
+
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
@@ -27,7 +29,7 @@ def serialize_example(bone_data, joint_data, label):
 
     return tf.train.Example(features=tf.train.Features(feature=feature)).SerializeToString()
 
-def gen_tfrecord_data():
+def gen_tfrecord_data(num_shards_train, num_shards_val):
     for dataset in datasets:
         for set in sets:
             for stream in streams:
@@ -36,7 +38,6 @@ def gen_tfrecord_data():
                 label_path = '../data/{}/{}_label.pkl'.format(dataset, set)
                 bone_data_path = '../data/{}/{}_data_bone{}.npy'.format(dataset, set, stream)
                 joint_data_path = '../data/{}/{}_data_joint{}.npy'.format(dataset, set, stream)
-                tfrecord_data_path = '../data/{}/{}{}_data.tfrecord'.format(dataset, set, stream)
 
                 if not (os.path.exists(label_path) and \
                         os.path.exists(bone_data_path) and \
@@ -60,10 +61,26 @@ def gen_tfrecord_data():
                 bone_data  = np.swapaxes(bone_data, 1, -1)
                 joint_data = np.swapaxes(joint_data, 1, -1)
 
+                if not (os.path.exists('../data/{0}/{1}{2}_data'.format(dataset, set, stream))):
+                    os.mkdir('../data/{0}/{1}{2}_data'.format(dataset, set, stream))
+
                 # Loop through samples and insert into tfrecord
-                with tf.io.TFRecordWriter(tfrecord_data_path) as writer:
-                    for i in tqdm(range(len(labels))):
-                        writer.write(serialize_example(bone_data[i], joint_data[i], labels[i]))
+                if "val" in set:
+                    step = len(labels)//num_shards_val
+                    num_shards = num_shards_val
+                elif "train" in set:
+                    step = len(labels)//num_shards_train
+                    num_shards = num_shards_train
+
+                for shard in tqdm(range(num_shards)):
+                    tfrecord_data_path = '../data/{0}/{1}{2}_data/{1}{2}_data_{3}.tfrecord'.format(dataset, set, stream, shard)
+                    with tf.io.TFRecordWriter(tfrecord_data_path) as writer:
+                        for i in range(shard*step, (shard*step)+step if shard < num_shards_train-1 else len(labels)):
+                            writer.write(serialize_example(bone_data[i], joint_data[i], labels[i]))
 
 if __name__ == '__main__':
-    gen_tfrecord_data()
+    parser = argparse.ArgumentParser(description='NTU-RGB-D Data TFRecord Converter.')
+    parser.add_argument('--num-shards-train', type=int, default=40, help='number of files to split train dataset into')
+    parser.add_argument('--num-shards-val', type=int, default=1, help='number of files to split val dataset into')
+    arg = parser.parse_args()
+    gen_tfrecord_data(arg.num_shards_train, arg.num_shards_val)
