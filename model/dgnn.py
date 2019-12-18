@@ -66,8 +66,8 @@ class DGNBlock(tf.keras.Model):
         fe = tf.reshape(fe, (BatchSize, -1, Ne))
 
         # Compute features for node/edge updates
-        feAs = tf.einsum('nce,ev->ncv', fe, tf.transpose(self.source_A))
-        feAt = tf.einsum('nce,ev->ncv', fe, tf.transpose(self.target_A))
+        feAs = tf.einsum('nce,ev->ncv', fe, self.source_A)
+        feAt = tf.einsum('nce,ev->ncv', fe, self.target_A)
         fv_inp = tf.stack([fv, feAs, feAt], axis=1) # Out shape: (BatchSize,3,CT,Nv)
         fv_inp = tf.transpose(tf.reshape(fv_inp, (BatchSize, 3 * C, T, Nv)), perm=[0,2,3,1]) # Out shape: (BatchSize,T,Nv,3C)
 

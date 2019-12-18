@@ -1,2 +1,4 @@
 data/ntu/
-__pycache__
+
+__pycache__/
+*.pyc

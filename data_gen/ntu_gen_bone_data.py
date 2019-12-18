@@ -27,7 +27,7 @@ def gen_bone_data():
                 mode='w+',
                 shape=(N, 3, T, len(directed_edges), M))
 
-            for edge_id, (source_node, target_node) in tqdm(enumerate(directed_edges)):
+            for edge_id, (source_node, target_node) in tqdm(enumerate(directed_edges), total=len(directed_edges)):
                 # Assign bones to be joint1 - joint2, the pairs are pre-determined and hardcoded
                 # There also happens to be 25 bones
                 fp_sp[:, :, :, edge_id, :] = data[:, :, :, source_node, :] - data[:, :, :, target_node, :]
